@@ -2,7 +2,8 @@ const SUPABASE_URL = "https://xxxxx.supabase.co";
 const SUPABASE_ANON_KEY = "public-anon-key";
 
 async function main() {
-  await liff.init({ liffId: "YOUR_LIFF_ID" });
+  await liff.init({ liffId: "2008788331-Py2gq4G8
+" });
 
   const urlParams = new URLSearchParams(location.search);
   const eventId = urlParams.get("event");
@@ -79,3 +80,4 @@ function render(slots) {
 }
 
 main();
+
