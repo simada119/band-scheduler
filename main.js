@@ -30,6 +30,25 @@ async function main() {
 
   // 2) timeslots を取得（自分の回答my_valueもここで返ってくる想定）
   const slots = await getEventTimeslots(eventId, personId);
+async function getEvent(eventId) {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/events?select=id,title,deadline_at,status&id=eq.${encodeURIComponent(eventId)}`,
+    {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    }
+  );
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`events GET failed: ${res.status} ${t}`);
+  }
+
+  const data = await res.json();
+  return data[0]; // 1件
+}
 
   // 3) 集計を取得して slots に合体
   const counts = await getTimeslotCounts(eventId);
@@ -300,3 +319,4 @@ function render(slots, eventId, personId) {
 }
 
 main();
+
