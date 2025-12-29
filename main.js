@@ -11,6 +11,8 @@ async function main() {
   }
 
   const profile = await liff.getProfile();
+  const displayName = profile.displayName;
+  const lineUserId = profile.userId;
 
   const urlParams = new URLSearchParams(location.search);
   const eventId = urlParams.get("event");
@@ -19,25 +21,25 @@ async function main() {
     return;
   }
 
-  const lineUserId = profile.userId;
+  // タイトルに名前表示
+  document.getElementById("title").textContent =
+    `イベント（あなた：${displayName}）`;
 
-  // 1) person を取得 or 作成
-  const personId = await getOrCreatePerson(lineUserId);
+  // person 取得 or 作成（名前も保存）
+  const personId = await getOrCreatePerson(lineUserId, displayName);
 
-  // 2) timeslots を取得
+  // timeslots 取得
   const slots = await getEventTimeslots(eventId, personId);
 
-  // 3) 伝助UIで描画（押したらDBに保存）
+  // 描画
   render(slots, eventId, personId);
 }
 
-
-  // --- INSERT persons ---
+/* ---------- persons ---------- */
 
 async function getOrCreatePerson(lineUserId, displayName) {
-  // --- GET persons ---
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/persons?select=id,display_name&line_user_id=eq.${encodeURIComponent(
+    `${SUPABASE_URL}/rest/v1/persons?select=id&line_user_id=eq.${encodeURIComponent(
       lineUserId
     )}`,
     {
@@ -48,15 +50,10 @@ async function getOrCreatePerson(lineUserId, displayName) {
     }
   );
 
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`persons GET failed: ${res.status} ${t}`);
-  }
-
   const text = await res.text();
   const data = text ? JSON.parse(text) : [];
 
-  // すでに存在する場合 → 名前だけ最新化
+  // 既存 → 名前を最新化
   if (data.length > 0) {
     const personId = data[0].id;
 
@@ -73,7 +70,7 @@ async function getOrCreatePerson(lineUserId, displayName) {
     return personId;
   }
 
-  // --- INSERT persons ---
+  // 新規作成
   const insert = await fetch(`${SUPABASE_URL}/rest/v1/persons?select=id`, {
     method: "POST",
     headers: {
@@ -88,18 +85,12 @@ async function getOrCreatePerson(lineUserId, displayName) {
     }),
   });
 
-  if (!insert.ok) {
-    const t = await insert.text();
-    throw new Error(`persons POST failed: ${insert.status} ${t}`);
-  }
-
   const insertText = await insert.text();
   const created = insertText ? JSON.parse(insertText) : [];
-  if (!created[0]) throw new Error("persons POST succeeded but empty response");
-
   return created[0].id;
 }
 
+/* ---------- timeslots ---------- */
 
 async function getEventTimeslots(eventId, personId) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_event_timeslots`, {
@@ -115,15 +106,11 @@ async function getEventTimeslots(eventId, personId) {
     }),
   });
 
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`get_event_timeslots failed: ${res.status} ${t}`);
-  }
-
   return await res.json();
 }
 
-// responses に upsert（同じ event_id + timeslot_id + person_id は上書き）
+/* ---------- responses ---------- */
+
 async function saveResponse({ eventId, timeslotId, personId, value }) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/responses`, {
     method: "POST",
@@ -138,21 +125,19 @@ async function saveResponse({ eventId, timeslotId, personId, value }) {
         event_id: eventId,
         timeslot_id: timeslotId,
         person_id: personId,
-        value,
+        value, // o / tri / x
       },
     ]),
   });
 
   if (!res.ok) {
     const t = await res.text();
-    throw new Error(`saveResponse failed: ${res.status} ${t}`);
+    throw new Error(t);
   }
-
-  return await res.json();
 }
 
-// ✅ 伝助っぽいUI（○△×ボタン）
-// ※ 押したらDB保存する
+/* ---------- UI ---------- */
+
 function render(slots, eventId, personId) {
   const root = document.getElementById("slots");
   root.innerHTML = "";
@@ -178,44 +163,39 @@ function render(slots, eventId, personId) {
     const btns = document.createElement("div");
     btns.className = "btns";
 
-    // ★ timeslotのID（RPCの返り値に合わせて拾う）
     const timeslotId = s.timeslot_id ?? s.id;
 
     const makeBtn = (label, value) => {
       const btn = document.createElement("button");
       btn.textContent = label;
 
-      if ((s.my_value ?? null) === value) btn.classList.add("active");
+      if (s.my_value === value) btn.classList.add("active");
       if (s.is_blocked) btn.disabled = true;
 
-      btn.addEventListener("click", async () => {
-        if (!timeslotId) {
-          console.warn("timeslotId not found in slot:", s);
-          alert("timeslotId が見つかりません（RPCの返り値にIDが必要です）");
-          return;
-        }
-
-        // 1) 先にUI反映（伝助っぽさ優先）
+      btn.onclick = async () => {
         s.my_value = value;
         render(slots, eventId, personId);
 
-        // 2) DB保存
         try {
-          await saveResponse({ eventId, timeslotId, personId, value });
+          await saveResponse({
+            eventId,
+            timeslotId,
+            personId,
+            value,
+          });
         } catch (e) {
           console.error(e);
-          alert("保存に失敗しました。Consoleを確認してください。");
+          alert("保存に失敗しました");
         }
-      });
+      };
 
       return btn;
     };
 
-  
+    // enum に合わせる（重要）
     btns.appendChild(makeBtn("○", "o"));
     btns.appendChild(makeBtn("△", "tri"));
     btns.appendChild(makeBtn("×", "x"));
-
 
     row.appendChild(time);
     row.appendChild(status);
@@ -226,5 +206,3 @@ function render(slots, eventId, personId) {
 }
 
 main();
-
-
