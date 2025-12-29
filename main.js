@@ -27,8 +27,8 @@ async function main() {
   // 2) timeslots を取得
   const slots = await getEventTimeslots(eventId, personId);
 
-  // 3) 伝助っぽいUIで描画（DB保存はまだしない）
-  render(slots);
+  // 3) 伝助UIで描画（押したらDBに保存）
+  render(slots, eventId, personId);
 }
 
 async function getOrCreatePerson(lineUserId) {
@@ -100,9 +100,37 @@ async function getEventTimeslots(eventId, personId) {
   return await res.json();
 }
 
+// responses に upsert（同じ event_id + timeslot_id + person_id は上書き）
+async function saveResponse({ eventId, timeslotId, personId, value }) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/responses`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify([
+      {
+        event_id: eventId,
+        timeslot_id: timeslotId,
+        person_id: personId,
+        value,
+      },
+    ]),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`saveResponse failed: ${res.status} ${t}`);
+  }
+
+  return await res.json();
+}
+
 // ✅ 伝助っぽいUI（○△×ボタン）
-// ※ ここではDB保存しない（リロードで戻る）
-function render(slots) {
+// ※ 押したらDB保存する
+function render(slots, eventId, personId) {
   const root = document.getElementById("slots");
   root.innerHTML = "";
 
@@ -113,7 +141,6 @@ function render(slots) {
     const start = new Date(s.start_at);
     const end = new Date(s.end_at);
 
-    // 日時表示
     const time = document.createElement("div");
     time.className = "time";
     time.innerHTML = `
@@ -121,14 +148,15 @@ function render(slots) {
       <div class="muted">〜 ${end.toLocaleString()}</div>
     `;
 
-    // 現在の状態表示
     const status = document.createElement("div");
     status.className = "status";
     status.textContent = s.my_value ?? "-";
 
-    // ○△×ボタン
     const btns = document.createElement("div");
     btns.className = "btns";
+
+    // ★ timeslotのID（RPCの返り値に合わせて拾う）
+    const timeslotId = s.timeslot_id ?? s.id;
 
     const makeBtn = (label, value) => {
       const btn = document.createElement("button");
@@ -137,9 +165,24 @@ function render(slots) {
       if ((s.my_value ?? null) === value) btn.classList.add("active");
       if (s.is_blocked) btn.disabled = true;
 
-      btn.addEventListener("click", () => {
-        s.my_value = value;     // UIだけ更新
-        render(slots);          // 再描画
+      btn.addEventListener("click", async () => {
+        if (!timeslotId) {
+          console.warn("timeslotId not found in slot:", s);
+          alert("timeslotId が見つかりません（RPCの返り値にIDが必要です）");
+          return;
+        }
+
+        // 1) 先にUI反映（伝助っぽさ優先）
+        s.my_value = value;
+        render(slots, eventId, personId);
+
+        // 2) DB保存
+        try {
+          await saveResponse({ eventId, timeslotId, personId, value });
+        } catch (e) {
+          console.error(e);
+          alert("保存に失敗しました。Consoleを確認してください。");
+        }
       });
 
       return btn;
@@ -158,9 +201,3 @@ function render(slots) {
 }
 
 main();
-
-
-
-
-
-
