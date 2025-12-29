@@ -188,9 +188,11 @@ function render(slots, eventId, personId) {
       return btn;
     };
 
-    btns.appendChild(makeBtn("○", "ok"));
-    btns.appendChild(makeBtn("△", "maybe"));
-    btns.appendChild(makeBtn("×", "ng"));
+  
+    btns.appendChild(makeBtn("○", "o"));
+    btns.appendChild(makeBtn("△", "tri"));
+    btns.appendChild(makeBtn("×", "x"));
+
 
     row.appendChild(time);
     row.appendChild(status);
@@ -201,3 +203,4 @@ function render(slots, eventId, personId) {
 }
 
 main();
+
