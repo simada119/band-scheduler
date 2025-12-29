@@ -20,7 +20,6 @@ const profile = await liff.getProfile();
     return;
   }
 
-  const profile = await liff.getProfile();
   const lineUserId = profile.userId;
 
   // 1) person を取得 or 作成
@@ -87,6 +86,7 @@ function render(slots) {
 }
 
 main();
+
 
 
 
