@@ -1,5 +1,5 @@
 const SUPABASE_URL = "https://prxyvyawahbtczuyskkq.supabase.co";
-const SUPABASE_ANON_KEY = "public-anon-key";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByeHl2eWF3YWhidGN6dXlza2txIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5MDE4MzksImV4cCI6MjA3NTQ3NzgzOX0.bu12SWZwAFuGAB_7lDzr1mZDBZ5gwURTP8BccNO68oQ";
 
 async function main() {
  await liff.init({ liffId: "2008788331-Py2gq4G8" });
@@ -86,6 +86,7 @@ function render(slots) {
 }
 
 main();
+
 
 
 
