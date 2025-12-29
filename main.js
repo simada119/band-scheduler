@@ -27,69 +27,8 @@ async function main() {
   // 2) timeslots を取得
   const slots = await getEventTimeslots(eventId, personId);
 
-  function render(slots) {
-  const root = document.getElementById("slots");
-  root.innerHTML = "";
-
-  slots.forEach((s) => {
-    const row = document.createElement("div");
-    row.className = "row" + (s.is_blocked ? " blocked" : "");
-
-    const start = new Date(s.start_at);
-    const end = new Date(s.end_at);
-
-    // 日時表示
-    const time = document.createElement("div");
-    time.className = "time";
-    time.innerHTML = `
-      <div><b>${start.toLocaleString()}</b></div>
-      <div>〜 ${end.toLocaleString()}</div>
-    `;
-
-    // 現在の状態表示
-    const status = document.createElement("div");
-    status.className = "status";
-    status.textContent = s.my_value ?? "-";
-
-    // ○△×ボタン
-    const btns = document.createElement("div");
-    btns.className = "btns";
-
-    const makeBtn = (label, value) => {
-      const btn = document.createElement("button");
-      btn.textContent = label;
-
-      if ((s.my_value ?? null) === value) {
-        btn.classList.add("active");
-      }
-
-      if (s.is_blocked) {
-        btn.disabled = true;
-      }
-
-      btn.addEventListener("click", () => {
-        // ★ ここではDB保存しない（UIだけ）
-        s.my_value = value;
-
-        // 画面を再描画（伝助っぽい動き）
-        render(slots);
-      });
-
-      return btn;
-    };
-
-    btns.appendChild(makeBtn("○", "ok"));
-    btns.appendChild(makeBtn("△", "maybe"));
-    btns.appendChild(makeBtn("×", "ng"));
-
-    row.appendChild(time);
-    row.appendChild(status);
-    row.appendChild(btns);
-
-    root.appendChild(row);
-  });
-}
-
+  // 3) 伝助っぽいUIで描画（DB保存はまだしない）
+  render(slots);
 }
 
 async function getOrCreatePerson(lineUserId) {
@@ -116,19 +55,16 @@ async function getOrCreatePerson(lineUserId) {
   if (data.length > 0) return data[0].id;
 
   // --- INSERT persons ---
-  const insert = await fetch(
-    `${SUPABASE_URL}/rest/v1/persons?select=id`,
-    {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({ line_user_id: lineUserId }),
-    }
-  );
+  const insert = await fetch(`${SUPABASE_URL}/rest/v1/persons?select=id`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({ line_user_id: lineUserId }),
+  });
 
   if (!insert.ok) {
     const t = await insert.text();
@@ -143,21 +79,18 @@ async function getOrCreatePerson(lineUserId) {
 }
 
 async function getEventTimeslots(eventId, personId) {
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/rpc/get_event_timeslots`,
-    {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        p_event_id: eventId,
-        p_person_id: personId,
-      }),
-    }
-  );
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_event_timeslots`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      p_event_id: eventId,
+      p_person_id: personId,
+    }),
+  });
 
   if (!res.ok) {
     const t = await res.text();
@@ -167,27 +100,64 @@ async function getEventTimeslots(eventId, personId) {
   return await res.json();
 }
 
+// ✅ 伝助っぽいUI（○△×ボタン）
+// ※ ここではDB保存しない（リロードで戻る）
 function render(slots) {
   const root = document.getElementById("slots");
   root.innerHTML = "";
 
   slots.forEach((s) => {
-    const div = document.createElement("div");
-    div.className = "slot" + (s.is_blocked ? " blocked" : "");
-    div.innerHTML = `
-      <div>${new Date(s.start_at).toLocaleString()} 〜 ${new Date(
-        s.end_at
-      ).toLocaleString()}</div>
-      <div>状態: ${
-        s.is_blocked ? "× 確定済みと重複" : s.my_value ?? "-"
-      }</div>
+    const row = document.createElement("div");
+    row.className = "row" + (s.is_blocked ? " blocked" : "");
+
+    const start = new Date(s.start_at);
+    const end = new Date(s.end_at);
+
+    // 日時表示
+    const time = document.createElement("div");
+    time.className = "time";
+    time.innerHTML = `
+      <div><b>${start.toLocaleString()}</b></div>
+      <div class="muted">〜 ${end.toLocaleString()}</div>
     `;
-    root.appendChild(div);
+
+    // 現在の状態表示
+    const status = document.createElement("div");
+    status.className = "status";
+    status.textContent = s.my_value ?? "-";
+
+    // ○△×ボタン
+    const btns = document.createElement("div");
+    btns.className = "btns";
+
+    const makeBtn = (label, value) => {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+
+      if ((s.my_value ?? null) === value) btn.classList.add("active");
+      if (s.is_blocked) btn.disabled = true;
+
+      btn.addEventListener("click", () => {
+        s.my_value = value;     // UIだけ更新
+        render(slots);          // 再描画
+      });
+
+      return btn;
+    };
+
+    btns.appendChild(makeBtn("○", "ok"));
+    btns.appendChild(makeBtn("△", "maybe"));
+    btns.appendChild(makeBtn("×", "ng"));
+
+    row.appendChild(time);
+    row.appendChild(status);
+    row.appendChild(btns);
+
+    root.appendChild(row);
   });
 }
 
 main();
-
 
 
 
