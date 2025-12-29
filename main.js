@@ -14,7 +14,6 @@ async function main() {
   const displayName = profile.displayName;
   const lineUserId = profile.userId;
 
-  // ✅ eventId を先に確定
   const urlParams = new URLSearchParams(location.search);
   const eventId = urlParams.get("event");
   if (!eventId) {
@@ -22,14 +21,20 @@ async function main() {
     return;
   }
 
-  // ✅ イベント情報を取得して表示
+  const adminToken = urlParams.get("admin"); // 幹事用リンクだけ入る
+  const isAdmin = !!adminToken;
+
+  // イベント取得
   const event = await getEvent(eventId);
 
-  // ✅ 締切判定（deadline or status）
+  // 締切判定（deadline / status / confirmed）
   const isClosedByDeadline =
     event?.deadline_at ? new Date(event.deadline_at).getTime() <= Date.now() : false;
-  const isClosed = event?.status === "closed" || isClosedByDeadline;
 
+  const isClosed =
+    event?.status === "closed" || isClosedByDeadline || !!event?.confirmed_timeslot_id;
+
+  // タイトル＆メタ表示
   const titleEl = document.getElementById("title");
   if (titleEl) titleEl.textContent = event?.title || "イベント";
 
@@ -38,18 +43,29 @@ async function main() {
     const deadlineText = event?.deadline_at
       ? new Date(event.deadline_at).toLocaleString()
       : "未設定";
-    const closedText = isClosed ? "（締切済み）" : "";
+
+    const closedText = isClosed ? "（締切/確定済み）" : "";
     const statusText = event?.status ? ` / 状態: ${event.status}` : "";
-    metaEl.textContent = `締切: ${deadlineText}${closedText}${statusText} / あなた: ${displayName}`;
+    const adminText = isAdmin ? " / 幹事モード" : "";
+
+    metaEl.textContent = `締切: ${deadlineText}${closedText}${statusText} / あなた: ${displayName}${adminText}`;
   }
 
-  // 1) person を取得 or 作成（名前も保存）
+  // person 取得/作成（表示名も保存）
   const personId = await getOrCreatePerson(lineUserId, displayName);
 
-  // 2) timeslots を取得（my_value / is_blocked が入っている想定）
+  // timeslots（my_value / is_blocked を返す想定）
   const slots = await getEventTimeslots(eventId, personId);
 
-  // 3) 集計を取得して slots に合体
+  // 確定枠があるなら、確定枠以外はブロック（DB側RPCを直す前の“確実に動く”版）
+  if (event?.confirmed_timeslot_id) {
+    slots.forEach((s) => {
+      const tid = s.timeslot_id ?? s.id;
+      if (tid && tid !== event.confirmed_timeslot_id) s.is_blocked = true;
+    });
+  }
+
+  // 集計合体
   const counts = await getTimeslotCounts(eventId);
   const map = new Map(counts.map((c) => [c.timeslot_id, c]));
   slots.forEach((s) => {
@@ -61,15 +77,14 @@ async function main() {
     s.total_count = c?.total_count ?? 0;
   });
 
-  // 4) 描画（締切フラグも渡す）
-  render(slots, eventId, personId, isClosed);
+  render(slots, eventId, personId, isClosed, isAdmin, adminToken, event?.confirmed_timeslot_id);
 }
 
 /* ---------- events ---------- */
 
 async function getEvent(eventId) {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/events?select=id,title,deadline_at,status&id=eq.${encodeURIComponent(
+    `${SUPABASE_URL}/rest/v1/events?select=id,title,deadline_at,status,confirmed_timeslot_id&id=eq.${encodeURIComponent(
       eventId
     )}`,
     {
@@ -115,7 +130,6 @@ async function getOrCreatePerson(lineUserId, displayName) {
   if (data.length > 0) {
     const personId = data[0].id;
 
-    // display_name を最新化
     await fetch(`${SUPABASE_URL}/rest/v1/persons?id=eq.${personId}`, {
       method: "PATCH",
       headers: {
@@ -155,7 +169,7 @@ async function getOrCreatePerson(lineUserId, displayName) {
   return created[0].id;
 }
 
-/* ---------- timeslots (既存RPC) ---------- */
+/* ---------- timeslots RPC ---------- */
 
 async function getEventTimeslots(eventId, personId) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_event_timeslots`, {
@@ -179,7 +193,7 @@ async function getEventTimeslots(eventId, personId) {
   return await res.json();
 }
 
-/* ---------- counts (RPC) ---------- */
+/* ---------- counts RPC ---------- */
 
 async function getTimeslotCounts(eventId) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_timeslot_counts`, {
@@ -198,6 +212,29 @@ async function getTimeslotCounts(eventId) {
   }
 
   return await res.json();
+}
+
+/* ---------- confirm RPC ---------- */
+
+async function confirmTimeslot(eventId, timeslotId, adminToken) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/confirm_timeslot`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      p_event_id: eventId,
+      p_timeslot_id: timeslotId,
+      p_admin_token: adminToken,
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`confirm_timeslot failed: ${res.status} ${t}`);
+  }
 }
 
 /* ---------- responses ---------- */
@@ -238,13 +275,20 @@ function prettyValue(v) {
   return "-";
 }
 
-function render(slots, eventId, personId, isClosed) {
+function render(slots, eventId, personId, isClosed, isAdmin, adminToken, confirmedTimeslotId) {
   const root = document.getElementById("slots");
   root.innerHTML = "";
 
   slots.forEach((s) => {
     const row = document.createElement("div");
-    row.className = "row" + (s.is_blocked ? " blocked" : "");
+
+    const tid = s.timeslot_id ?? s.id;
+    const isConfirmed = confirmedTimeslotId && tid === confirmedTimeslotId;
+
+    row.className =
+      "row" +
+      (s.is_blocked ? " blocked" : "") +
+      (isConfirmed ? " confirmed" : "");
 
     const start = new Date(s.start_at);
     const end = new Date(s.end_at);
@@ -256,44 +300,61 @@ function render(slots, eventId, personId, isClosed) {
       <div class="muted">〜 ${end.toLocaleString()}</div>
     `;
 
-    // 集計
     const summary = document.createElement("div");
     summary.className = "muted";
     summary.textContent = `○${s.o_count ?? 0} △${s.tri_count ?? 0} ×${s.x_count ?? 0}`;
     time.appendChild(summary);
 
-    // 自分の状態
+    if (isConfirmed) {
+      const badge = document.createElement("div");
+      badge.className = "muted";
+      badge.textContent = "✅ 確定枠";
+      time.appendChild(badge);
+    }
+
     const status = document.createElement("div");
     status.className = "status";
     status.textContent = prettyValue(s.my_value);
 
-    // ボタン
     const btns = document.createElement("div");
     btns.className = "btns";
 
-    const timeslotId = s.timeslot_id ?? s.id;
+    // 幹事だけ「確定」ボタン（まだ閉じてないときだけ）
+    if (isAdmin && !isClosed) {
+      const confirmBtn = document.createElement("button");
+      confirmBtn.textContent = "確定";
+      confirmBtn.addEventListener("click", async () => {
+        if (!tid) return alert("timeslotId が見つかりません");
+        if (!confirm("この枠で確定します。よろしいですか？")) return;
+
+        try {
+          await confirmTimeslot(eventId, tid, adminToken);
+          alert("確定しました。ページを更新します。");
+          location.reload();
+        } catch (e) {
+          console.error(e);
+          alert("確定に失敗しました。Consoleを確認してください。");
+        }
+      });
+      btns.appendChild(confirmBtn);
+    }
 
     const makeBtn = (label, value) => {
       const btn = document.createElement("button");
       btn.textContent = label;
 
       if ((s.my_value ?? null) === value) btn.classList.add("active");
-      if (s.is_blocked || isClosed) btn.disabled = true; // ✅ 締切なら押せない
+      if (s.is_blocked || isClosed) btn.disabled = true;
 
       btn.addEventListener("click", async () => {
-        if (isClosed) return; // ✅ 念のため
-
-        if (!timeslotId) {
-          console.warn("timeslotId not found in slot:", s);
-          alert("timeslotId が見つかりません");
-          return;
-        }
+        if (isClosed) return;
+        if (!tid) return alert("timeslotId が見つかりません");
 
         // UIを即反映
         const prev = s.my_value;
         s.my_value = value;
 
-        // 集計の見た目も即反映（自分の1票分だけ調整）
+        // 集計も即反映（自分の1票分だけ調整）
         if (prev === "o") s.o_count = Math.max(0, (s.o_count ?? 0) - 1);
         if (prev === "tri") s.tri_count = Math.max(0, (s.tri_count ?? 0) - 1);
         if (prev === "x") s.x_count = Math.max(0, (s.x_count ?? 0) - 1);
@@ -302,22 +363,21 @@ function render(slots, eventId, personId, isClosed) {
         if (value === "tri") s.tri_count = (s.tri_count ?? 0) + 1;
         if (value === "x") s.x_count = (s.x_count ?? 0) + 1;
 
-        render(slots, eventId, personId, isClosed);
+        render(slots, eventId, personId, isClosed, isAdmin, adminToken, confirmedTimeslotId);
 
-        // DB保存
         try {
-          await saveResponse({ eventId, timeslotId, personId, value });
+          await saveResponse({ eventId, timeslotId: tid, personId, value });
 
-          // サーバー集計で再同期（ズレ防止）
+          // 再同期（ズレ防止）
           const counts = await getTimeslotCounts(eventId);
           const map = new Map(counts.map((c) => [c.timeslot_id, c]));
-          const c = map.get(timeslotId);
+          const c = map.get(tid);
           if (c) {
             s.o_count = c.o_count;
             s.tri_count = c.tri_count;
             s.x_count = c.x_count;
             s.total_count = c.total_count;
-            render(slots, eventId, personId, isClosed);
+            render(slots, eventId, personId, isClosed, isAdmin, adminToken, confirmedTimeslotId);
           }
         } catch (e) {
           console.error(e);
@@ -339,12 +399,11 @@ function render(slots, eventId, personId, isClosed) {
     root.appendChild(row);
   });
 
-  // 画面下にも締切メッセージ（任意）
   if (isClosed) {
     const note = document.createElement("div");
     note.className = "muted";
     note.style.marginTop = "12px";
-    note.textContent = "このイベントは締切済みのため、回答を変更できません。";
+    note.textContent = "このイベントは締切/確定済みのため、回答を変更できません。";
     root.appendChild(note);
   }
 }
