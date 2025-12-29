@@ -32,27 +32,14 @@ const profile = await liff.getProfile();
 }
 
 async function getOrCreatePerson(lineUserId) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/persons?line_user_id=eq.${lineUserId}`, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    },
-  });
-  const data = await res.json();
-  if (data.length > 0) return data[0].id;
+  // 1) まず検索（idだけ取る）
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/persons?select=id&line_user_id=eq.${encodeURIComponent(lineUserId)}`,
+    {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${S
 
-  const insert = await fetch(`${SUPABASE_URL}/rest/v1/persons`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ line_user_id: lineUserId }),
-  });
-  const created = await insert.json();
-  return created[0].id;
-}
 
 async function getEventTimeslots(eventId, personId) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_event_timeslots`, {
@@ -86,6 +73,7 @@ function render(slots) {
 }
 
 main();
+
 
 
 
