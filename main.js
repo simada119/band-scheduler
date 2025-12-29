@@ -14,7 +14,7 @@ async function main() {
   const displayName = profile.displayName;
   const lineUserId = profile.userId;
 
-  // ✅ 先に eventId を作る（ここ重要）
+  // ✅ eventId を先に確定
   const urlParams = new URLSearchParams(location.search);
   const eventId = urlParams.get("event");
   if (!eventId) {
@@ -25,6 +25,11 @@ async function main() {
   // ✅ イベント情報を取得して表示
   const event = await getEvent(eventId);
 
+  // ✅ 締切判定（deadline or status）
+  const isClosedByDeadline =
+    event?.deadline_at ? new Date(event.deadline_at).getTime() <= Date.now() : false;
+  const isClosed = event?.status === "closed" || isClosedByDeadline;
+
   const titleEl = document.getElementById("title");
   if (titleEl) titleEl.textContent = event?.title || "イベント";
 
@@ -33,8 +38,9 @@ async function main() {
     const deadlineText = event?.deadline_at
       ? new Date(event.deadline_at).toLocaleString()
       : "未設定";
+    const closedText = isClosed ? "（締切済み）" : "";
     const statusText = event?.status ? ` / 状態: ${event.status}` : "";
-    metaEl.textContent = `締切: ${deadlineText}${statusText} / あなた: ${displayName}`;
+    metaEl.textContent = `締切: ${deadlineText}${closedText}${statusText} / あなた: ${displayName}`;
   }
 
   // 1) person を取得 or 作成（名前も保存）
@@ -55,8 +61,8 @@ async function main() {
     s.total_count = c?.total_count ?? 0;
   });
 
-  // 4) 描画
-  render(slots, eventId, personId);
+  // 4) 描画（締切フラグも渡す）
+  render(slots, eventId, personId, isClosed);
 }
 
 /* ---------- events ---------- */
@@ -86,7 +92,6 @@ async function getEvent(eventId) {
 /* ---------- persons ---------- */
 
 async function getOrCreatePerson(lineUserId, displayName) {
-  // 既存検索
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/persons?select=id&line_user_id=eq.${encodeURIComponent(
       lineUserId
@@ -107,10 +112,10 @@ async function getOrCreatePerson(lineUserId, displayName) {
   const text = await res.text();
   const data = text ? JSON.parse(text) : [];
 
-  // 既存なら名前を最新化
   if (data.length > 0) {
     const personId = data[0].id;
 
+    // display_name を最新化
     await fetch(`${SUPABASE_URL}/rest/v1/persons?id=eq.${personId}`, {
       method: "PATCH",
       headers: {
@@ -124,7 +129,6 @@ async function getOrCreatePerson(lineUserId, displayName) {
     return personId;
   }
 
-  // 新規作成
   const insert = await fetch(`${SUPABASE_URL}/rest/v1/persons?select=id`, {
     method: "POST",
     headers: {
@@ -234,7 +238,7 @@ function prettyValue(v) {
   return "-";
 }
 
-function render(slots, eventId, personId) {
+function render(slots, eventId, personId, isClosed) {
   const root = document.getElementById("slots");
   root.innerHTML = "";
 
@@ -252,7 +256,7 @@ function render(slots, eventId, personId) {
       <div class="muted">〜 ${end.toLocaleString()}</div>
     `;
 
-    // 集計表示
+    // 集計
     const summary = document.createElement("div");
     summary.className = "muted";
     summary.textContent = `○${s.o_count ?? 0} △${s.tri_count ?? 0} ×${s.x_count ?? 0}`;
@@ -274,9 +278,11 @@ function render(slots, eventId, personId) {
       btn.textContent = label;
 
       if ((s.my_value ?? null) === value) btn.classList.add("active");
-      if (s.is_blocked) btn.disabled = true;
+      if (s.is_blocked || isClosed) btn.disabled = true; // ✅ 締切なら押せない
 
       btn.addEventListener("click", async () => {
+        if (isClosed) return; // ✅ 念のため
+
         if (!timeslotId) {
           console.warn("timeslotId not found in slot:", s);
           alert("timeslotId が見つかりません");
@@ -296,13 +302,13 @@ function render(slots, eventId, personId) {
         if (value === "tri") s.tri_count = (s.tri_count ?? 0) + 1;
         if (value === "x") s.x_count = (s.x_count ?? 0) + 1;
 
-        render(slots, eventId, personId);
+        render(slots, eventId, personId, isClosed);
 
         // DB保存
         try {
           await saveResponse({ eventId, timeslotId, personId, value });
 
-          // 念のためサーバー集計で再同期（ズレ防止）
+          // サーバー集計で再同期（ズレ防止）
           const counts = await getTimeslotCounts(eventId);
           const map = new Map(counts.map((c) => [c.timeslot_id, c]));
           const c = map.get(timeslotId);
@@ -311,7 +317,7 @@ function render(slots, eventId, personId) {
             s.tri_count = c.tri_count;
             s.x_count = c.x_count;
             s.total_count = c.total_count;
-            render(slots, eventId, personId);
+            render(slots, eventId, personId, isClosed);
           }
         } catch (e) {
           console.error(e);
@@ -322,7 +328,6 @@ function render(slots, eventId, personId) {
       return btn;
     };
 
-    // enumに合わせる（o / tri / x）
     btns.appendChild(makeBtn("○", "o"));
     btns.appendChild(makeBtn("△", "tri"));
     btns.appendChild(makeBtn("×", "x"));
@@ -333,6 +338,15 @@ function render(slots, eventId, personId) {
 
     root.appendChild(row);
   });
+
+  // 画面下にも締切メッセージ（任意）
+  if (isClosed) {
+    const note = document.createElement("div");
+    note.className = "muted";
+    note.style.marginTop = "12px";
+    note.textContent = "このイベントは締切済みのため、回答を変更できません。";
+    root.appendChild(note);
+  }
 }
 
 main();
