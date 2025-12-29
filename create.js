@@ -1,29 +1,31 @@
 const SUPABASE_URL = "https://prxyvyawahbtczuyskkq.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByeHl2eWF3YWhidGN6dXlza2txIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5MDE4MzksImV4cCI6MjA3NTQ3NzgzOX0.bu12SWZwAFuGAB_7lDzr1mZDBZ5gwURTP8BccNO68oQ";
+const SUPABASE_ANON_KEY = "あなたのanon keyを貼る";
 
-// eventsテーブルに入ってる network_id（スクショに写ってるやつ）
-const NETWORK_ID = "56570d2e-0b11-4870-b3e0-5236c128cc5d";
+// eventsテーブルの network_id（あなたの値に置換）
+const NETWORK_ID = "あなたのnetwork_idを貼る";
 
 const slots = [];
 
 function renderSlots() {
   const el = document.getElementById("list");
+  if (!el) return;
+
   if (slots.length === 0) {
     el.textContent = "まだありません";
     return;
   }
 
   el.innerHTML = slots
-    .map(
-      (s, i) => `
-      <div class="row">
-        <div>#${i + 1} ${new Date(s.start_at).toLocaleString()} 〜 ${new Date(
-        s.end_at
-      ).toLocaleString()}</div>
-        <button onclick="removeSlot(${i})">削除</button>
-      </div>
-    `
-    )
+    .map((s, i) => {
+      const start = new Date(s.start_at).toLocaleString();
+      const end = new Date(s.end_at).toLocaleString();
+      return `
+        <div class="row">
+          <div>#${i + 1} ${start} 〜 ${end}</div>
+          <button onclick="removeSlot(${i})">削除</button>
+        </div>
+      `;
+    })
     .join("");
 }
 
@@ -32,22 +34,25 @@ window.removeSlot = (i) => {
   renderSlots();
 };
 
-document.getElementById("add").onclick = () => {
-  const start = document.getElementById("start").value;
-  const end = document.getElementById("end").value;
+document.getElementById("add")?.addEventListener("click", () => {
+  const start = document.getElementById("start")?.value;
+  const end = document.getElementById("end")?.value;
 
   if (!start || !end) return alert("start / end を入れてください");
 
   const s = new Date(start);
   const e = new Date(end);
-  if (s >= e) return alert("end は start より後にしてください");
+  if (!(s < e)) return alert("end は start より後にしてください");
 
-  slots.push({ start_at: s.toISOString(), end_at: e.toISOString() });
+  slots.push({
+    start_at: s.toISOString(),
+    end_at: e.toISOString(),
+  });
 
   document.getElementById("start").value = "";
   document.getElementById("end").value = "";
   renderSlots();
-};
+});
 
 async function insert(path, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -61,34 +66,42 @@ async function insert(path, body) {
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`${path} insert failed: ${res.status} ${t}`);
+  }
+
   return await res.json();
 }
 
-document.getElementById("create").onclick = async () => {
-  const title = document.getElementById("title").value.trim();
-  const deadline = document.getElementById("deadline").value;
+document.getElementById("create")?.addEventListener("click", async () => {
+  const title = document.getElementById("title")?.value?.trim();
+  const deadline = document.getElementById("deadline")?.value;
 
   if (!title) return alert("イベント名を入れてください");
   if (!deadline) return alert("締切を入れてください");
-  if (slots.length === 0) return alert("時間帯を1つ以上入れてください");
+  if (slots.length === 0) return alert("候補日時を1つ以上追加してください");
 
   const resultEl = document.getElementById("result");
-  resultEl.textContent = "作成中...";
+  if (resultEl) resultEl.textContent = "作成中...";
 
   try {
-    // 1) events作成
+    // 幹事トークン（これがリンクに乗る）
+    const adminToken = crypto.randomUUID();
+
+    // 1) events 作成
     const createdEvents = await insert("events?select=id", [
       {
         network_id: NETWORK_ID,
         title,
         deadline_at: new Date(deadline).toISOString(),
         status: "open",
+        admin_token: adminToken,
       },
     ]);
     const eventId = createdEvents[0].id;
 
-    // 2) timeslots作成
+    // 2) timeslots 作成
     await insert(
       "timeslots",
       slots.map((s) => ({
@@ -98,31 +111,44 @@ document.getElementById("create").onclick = async () => {
       }))
     );
 
-    // 3) 共有リンク
-    const shareUrl = `${location.origin}/?event=${eventId}`;
+    // 3) 共有リンク生成（create.htmlと同階層想定）
+    const base = location.origin + location.pathname.replace(/create\.html$/, "");
+    const participantUrl = `${base}?event=${eventId}`;
+    const adminUrl = `${base}?event=${eventId}&admin=${adminToken}`;
 
-    resultEl.innerHTML = `
-      <div class="muted">参加者に送るリンク</div>
-      <div class="linkbox">${shareUrl}</div>
-      <div class="row">
-        <button id="copy">コピー</button>
-        <button id="open">開く</button>
-      </div>
-    `;
+    if (resultEl) {
+      resultEl.innerHTML = `
+        <div class="muted">参加者に送るリンク</div>
+        <div class="linkbox">${participantUrl}</div>
 
-    document.getElementById("copy").onclick = async () => {
-      await navigator.clipboard.writeText(shareUrl);
-      alert("コピーしました");
-    };
-    document.getElementById("open").onclick = () => {
-      location.href = shareUrl;
-    };
+        <div class="muted" style="margin-top:10px;">幹事用リンク（確定ボタンが出ます）</div>
+        <div class="linkbox">${adminUrl}</div>
+
+        <div class="row">
+          <button id="copyP">参加者リンクをコピー</button>
+          <button id="copyA">幹事リンクをコピー</button>
+          <button id="openA">幹事で開く</button>
+        </div>
+      `;
+
+      document.getElementById("copyP").onclick = async () => {
+        await navigator.clipboard.writeText(participantUrl);
+        alert("参加者リンクをコピーしました");
+      };
+      document.getElementById("copyA").onclick = async () => {
+        await navigator.clipboard.writeText(adminUrl);
+        alert("幹事リンクをコピーしました");
+      };
+      document.getElementById("openA").onclick = () => {
+        location.href = adminUrl;
+      };
+    }
   } catch (e) {
     console.error(e);
     alert("作成に失敗しました。Consoleを確認してください。");
-    resultEl.textContent = "";
+    if (resultEl) resultEl.textContent = "";
   }
-};
+});
 
 renderSlots();
 
