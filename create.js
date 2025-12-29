@@ -1,8 +1,8 @@
 const SUPABASE_URL = "https://prxyvyawahbtczuyskkq.supabase.co";
-const SUPABASE_ANON_KEY = "あなたのanon keyを貼る";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByeHl2eWF3YWhidGN6dXlza2txIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5MDE4MzksImV4cCI6MjA3NTQ3NzgzOX0.bu12SWZwAFuGAB_7lDzr1mZDBZ5gwURTP8BccNO68oQ";
 
 // eventsテーブルに入ってる network_id（スクショに写ってるやつ）
-const NETWORK_ID = "56570d2e-0b11-4870-b3e0-5236cxxxxxxxxxxx";
+const NETWORK_ID = "56570d2e-0b11-4870-b3e0-5236c128cc5d";
 
 const slots = [];
 
@@ -125,3 +125,4 @@ document.getElementById("create").onclick = async () => {
 };
 
 renderSlots();
+
