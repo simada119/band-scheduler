@@ -1,4 +1,4 @@
-const SUPABASE_URL = "https://xxxxx.supabase.co";
+const SUPABASE_URL = "https://prxyvyawahbtczuyskkq.supabase.co";
 const SUPABASE_ANON_KEY = "public-anon-key";
 
 async function main() {
@@ -86,6 +86,7 @@ function render(slots) {
 }
 
 main();
+
 
 
 
