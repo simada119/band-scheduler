@@ -13,6 +13,19 @@ async function main() {
   const profile = await liff.getProfile();
   const displayName = profile.displayName;
   const lineUserId = profile.userId;
+// イベント情報を取得して表示
+const event = await getEvent(eventId);
+
+document.getElementById("title").textContent = event?.title || "イベント";
+
+const meta = document.getElementById("meta");
+if (meta) {
+  const deadlineText = event?.deadline_at
+    ? new Date(event.deadline_at).toLocaleString()
+    : "未設定";
+  const statusText = event?.status ? ` / 状態: ${event.status}` : "";
+  meta.textContent = `締切: ${deadlineText}${statusText}`;
+}
 
   const urlParams = new URLSearchParams(location.search);
   const eventId = urlParams.get("event");
@@ -319,4 +332,5 @@ function render(slots, eventId, personId) {
 }
 
 main();
+
 
