@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>イベント作成</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 12px 0; }
+    input, button { font-size: 16px; }
+    input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 10px; }
+    input[type="datetime-local"] { padding: 8px; border: 1px solid #ccc; border-radius: 10px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap: wrap; margin-top: 8px; }
+    button { padding: 10px 12px; border-radius: 10px; border: 1px solid #aaa; background:#fff; cursor:pointer; }
+    .muted { color:#666; font-size: 13px; }
+    .linkbox { word-break: break-all; background:#f7f7f7; padding: 10px; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <h1>イベント作成（幹事用）</h1>
+
+  <div class="card">
+    <div class="muted">イベント名</div>
+    <input id="title" type="text" placeholder="例：7月バンド練習" />
+  </div>
+
+  <div class="card">
+    <div class="muted">締切</div>
+    <input id="deadline" type="datetime-local" />
+  </div>
+
+  <div class="card">
+    <div class="muted">候補日時（start / end）</div>
+    <div class="row">
+      <input id="start" type="datetime-local" />
+      <input id="end" type="datetime-local" />
+      <button id="add">追加</button>
+    </div>
+    <div id="list" class="muted" style="margin-top:10px;">まだありません</div>
+  </div>
+
+  <div class="card">
+    <button id="create">作成する</button>
+    <div id="result" style="margin-top:12px;"></div>
+  </div>
+
+  <script src="./create.js"></script>
+</body>
+</html>
