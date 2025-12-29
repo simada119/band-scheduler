@@ -27,7 +27,69 @@ async function main() {
   // 2) timeslots を取得
   const slots = await getEventTimeslots(eventId, personId);
 
-  render(slots);
+  function render(slots) {
+  const root = document.getElementById("slots");
+  root.innerHTML = "";
+
+  slots.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "row" + (s.is_blocked ? " blocked" : "");
+
+    const start = new Date(s.start_at);
+    const end = new Date(s.end_at);
+
+    // 日時表示
+    const time = document.createElement("div");
+    time.className = "time";
+    time.innerHTML = `
+      <div><b>${start.toLocaleString()}</b></div>
+      <div>〜 ${end.toLocaleString()}</div>
+    `;
+
+    // 現在の状態表示
+    const status = document.createElement("div");
+    status.className = "status";
+    status.textContent = s.my_value ?? "-";
+
+    // ○△×ボタン
+    const btns = document.createElement("div");
+    btns.className = "btns";
+
+    const makeBtn = (label, value) => {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+
+      if ((s.my_value ?? null) === value) {
+        btn.classList.add("active");
+      }
+
+      if (s.is_blocked) {
+        btn.disabled = true;
+      }
+
+      btn.addEventListener("click", () => {
+        // ★ ここではDB保存しない（UIだけ）
+        s.my_value = value;
+
+        // 画面を再描画（伝助っぽい動き）
+        render(slots);
+      });
+
+      return btn;
+    };
+
+    btns.appendChild(makeBtn("○", "ok"));
+    btns.appendChild(makeBtn("△", "maybe"));
+    btns.appendChild(makeBtn("×", "ng"));
+
+    row.appendChild(time);
+    row.appendChild(status);
+    row.appendChild(btns);
+
+    root.appendChild(row);
+  });
+}
+
 }
 
 async function getOrCreatePerson(lineUserId) {
@@ -125,6 +187,7 @@ function render(slots) {
 }
 
 main();
+
 
 
 
