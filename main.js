@@ -31,10 +31,13 @@ async function main() {
   render(slots, eventId, personId);
 }
 
-async function getOrCreatePerson(lineUserId) {
+
+  // --- INSERT persons ---
+
+async function getOrCreatePerson(lineUserId, displayName) {
   // --- GET persons ---
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/persons?select=id&line_user_id=eq.${encodeURIComponent(
+    `${SUPABASE_URL}/rest/v1/persons?select=id,display_name&line_user_id=eq.${encodeURIComponent(
       lineUserId
     )}`,
     {
@@ -52,7 +55,23 @@ async function getOrCreatePerson(lineUserId) {
 
   const text = await res.text();
   const data = text ? JSON.parse(text) : [];
-  if (data.length > 0) return data[0].id;
+
+  // すでに存在する場合 → 名前だけ最新化
+  if (data.length > 0) {
+    const personId = data[0].id;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/persons?id=eq.${personId}`, {
+      method: "PATCH",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ display_name: displayName }),
+    });
+
+    return personId;
+  }
 
   // --- INSERT persons ---
   const insert = await fetch(`${SUPABASE_URL}/rest/v1/persons?select=id`, {
@@ -63,7 +82,10 @@ async function getOrCreatePerson(lineUserId) {
       "Content-Type": "application/json",
       Prefer: "return=representation",
     },
-    body: JSON.stringify({ line_user_id: lineUserId }),
+    body: JSON.stringify({
+      line_user_id: lineUserId,
+      display_name: displayName,
+    }),
   });
 
   if (!insert.ok) {
@@ -77,6 +99,7 @@ async function getOrCreatePerson(lineUserId) {
 
   return created[0].id;
 }
+
 
 async function getEventTimeslots(eventId, personId) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_event_timeslots`, {
@@ -203,4 +226,5 @@ function render(slots, eventId, personId) {
 }
 
 main();
+
 
