@@ -13,20 +13,8 @@ async function main() {
   const profile = await liff.getProfile();
   const displayName = profile.displayName;
   const lineUserId = profile.userId;
-// イベント情報を取得して表示
-const event = await getEvent(eventId);
 
-document.getElementById("title").textContent = event?.title || "イベント";
-
-const meta = document.getElementById("meta");
-if (meta) {
-  const deadlineText = event?.deadline_at
-    ? new Date(event.deadline_at).toLocaleString()
-    : "未設定";
-  const statusText = event?.status ? ` / 状態: ${event.status}` : "";
-  meta.textContent = `締切: ${deadlineText}${statusText}`;
-}
-
+  // ✅ 先に eventId を作る（ここ重要）
   const urlParams = new URLSearchParams(location.search);
   const eventId = urlParams.get("event");
   if (!eventId) {
@@ -34,18 +22,50 @@ if (meta) {
     return;
   }
 
-  // タイトルに自分の名前を表示
+  // ✅ イベント情報を取得して表示
+  const event = await getEvent(eventId);
+
   const titleEl = document.getElementById("title");
-  if (titleEl) titleEl.textContent = `イベント（あなた：${displayName}）`;
+  if (titleEl) titleEl.textContent = event?.title || "イベント";
+
+  const metaEl = document.getElementById("meta");
+  if (metaEl) {
+    const deadlineText = event?.deadline_at
+      ? new Date(event.deadline_at).toLocaleString()
+      : "未設定";
+    const statusText = event?.status ? ` / 状態: ${event.status}` : "";
+    metaEl.textContent = `締切: ${deadlineText}${statusText} / あなた: ${displayName}`;
+  }
 
   // 1) person を取得 or 作成（名前も保存）
   const personId = await getOrCreatePerson(lineUserId, displayName);
 
-  // 2) timeslots を取得（自分の回答my_valueもここで返ってくる想定）
+  // 2) timeslots を取得（my_value / is_blocked が入っている想定）
   const slots = await getEventTimeslots(eventId, personId);
+
+  // 3) 集計を取得して slots に合体
+  const counts = await getTimeslotCounts(eventId);
+  const map = new Map(counts.map((c) => [c.timeslot_id, c]));
+  slots.forEach((s) => {
+    const tid = s.timeslot_id ?? s.id;
+    const c = map.get(tid);
+    s.o_count = c?.o_count ?? 0;
+    s.tri_count = c?.tri_count ?? 0;
+    s.x_count = c?.x_count ?? 0;
+    s.total_count = c?.total_count ?? 0;
+  });
+
+  // 4) 描画
+  render(slots, eventId, personId);
+}
+
+/* ---------- events ---------- */
+
 async function getEvent(eventId) {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/events?select=id,title,deadline_at,status&id=eq.${encodeURIComponent(eventId)}`,
+    `${SUPABASE_URL}/rest/v1/events?select=id,title,deadline_at,status&id=eq.${encodeURIComponent(
+      eventId
+    )}`,
     {
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -60,29 +80,13 @@ async function getEvent(eventId) {
   }
 
   const data = await res.json();
-  return data[0]; // 1件
-}
-
-  // 3) 集計を取得して slots に合体
-  const counts = await getTimeslotCounts(eventId);
-  const map = new Map(counts.map((c) => [c.timeslot_id, c]));
-
-  slots.forEach((s) => {
-    const tid = s.timeslot_id ?? s.id;
-    const c = map.get(tid);
-    s.o_count = c?.o_count ?? 0;
-    s.tri_count = c?.tri_count ?? 0;
-    s.x_count = c?.x_count ?? 0;
-    s.total_count = c?.total_count ?? 0;
-  });
-
-  // 4) 描画
-  render(slots, eventId, personId);
+  return data[0];
 }
 
 /* ---------- persons ---------- */
 
 async function getOrCreatePerson(lineUserId, displayName) {
+  // 既存検索
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/persons?select=id&line_user_id=eq.${encodeURIComponent(
       lineUserId
@@ -103,11 +107,10 @@ async function getOrCreatePerson(lineUserId, displayName) {
   const text = await res.text();
   const data = text ? JSON.parse(text) : [];
 
-  // 既存なら display_name を最新化して返す
+  // 既存なら名前を最新化
   if (data.length > 0) {
     const personId = data[0].id;
 
-    // display_name カラムが存在する前提（なければ追加してね）
     await fetch(`${SUPABASE_URL}/rest/v1/persons?id=eq.${personId}`, {
       method: "PATCH",
       headers: {
@@ -172,7 +175,7 @@ async function getEventTimeslots(eventId, personId) {
   return await res.json();
 }
 
-/* ---------- counts (新RPC) ---------- */
+/* ---------- counts (RPC) ---------- */
 
 async function getTimeslotCounts(eventId) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_timeslot_counts`, {
@@ -190,7 +193,7 @@ async function getTimeslotCounts(eventId) {
     throw new Error(`get_timeslot_counts failed: ${res.status} ${t}`);
   }
 
-  return await res.json(); // [{timeslot_id,o_count,tri_count,x_count,total_count}, ...]
+  return await res.json();
 }
 
 /* ---------- responses ---------- */
@@ -249,16 +252,18 @@ function render(slots, eventId, personId) {
       <div class="muted">〜 ${end.toLocaleString()}</div>
     `;
 
-    // 集計表示（timeの下に追加）
+    // 集計表示
     const summary = document.createElement("div");
     summary.className = "muted";
     summary.textContent = `○${s.o_count ?? 0} △${s.tri_count ?? 0} ×${s.x_count ?? 0}`;
     time.appendChild(summary);
 
+    // 自分の状態
     const status = document.createElement("div");
     status.className = "status";
     status.textContent = prettyValue(s.my_value);
 
+    // ボタン
     const btns = document.createElement("div");
     btns.className = "btns";
 
@@ -274,16 +279,15 @@ function render(slots, eventId, personId) {
       btn.addEventListener("click", async () => {
         if (!timeslotId) {
           console.warn("timeslotId not found in slot:", s);
-          alert("timeslotId が見つかりません（RPCの返り値にIDが必要です）");
+          alert("timeslotId が見つかりません");
           return;
         }
 
-        // 1) UIを即反映
+        // UIを即反映
         const prev = s.my_value;
         s.my_value = value;
 
-        // 集計も即反映（自分の1票分を調整）
-        // prevがあれば減らし、新しいvalueを増やす
+        // 集計の見た目も即反映（自分の1票分だけ調整）
         if (prev === "o") s.o_count = Math.max(0, (s.o_count ?? 0) - 1);
         if (prev === "tri") s.tri_count = Math.max(0, (s.tri_count ?? 0) - 1);
         if (prev === "x") s.x_count = Math.max(0, (s.x_count ?? 0) - 1);
@@ -294,11 +298,11 @@ function render(slots, eventId, personId) {
 
         render(slots, eventId, personId);
 
-        // 2) DB保存
+        // DB保存
         try {
           await saveResponse({ eventId, timeslotId, personId, value });
 
-          // 3) 念のためサーバーの集計で再同期（ズレ防止）
+          // 念のためサーバー集計で再同期（ズレ防止）
           const counts = await getTimeslotCounts(eventId);
           const map = new Map(counts.map((c) => [c.timeslot_id, c]));
           const c = map.get(timeslotId);
@@ -318,7 +322,7 @@ function render(slots, eventId, personId) {
       return btn;
     };
 
-    // enumに合わせる（重要）
+    // enumに合わせる（o / tri / x）
     btns.appendChild(makeBtn("○", "o"));
     btns.appendChild(makeBtn("△", "tri"));
     btns.appendChild(makeBtn("×", "x"));
@@ -332,5 +336,3 @@ function render(slots, eventId, personId) {
 }
 
 main();
-
-
